@@ -1,0 +1,195 @@
+<title>Luz PP en Minerales</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: escena 3D del microscopio a la izquierda, platina de controles a la derecha; se apila en móvil */
+:root{--bg:#0d1117;--panel:#151b24;--line:#2a3442;--fg:#e6e9ee;--mute:#8d99aa;--acc:#7cc4ff;--warm:#ffb46b;
+--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace;color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans)}
+.app{display:flex;min-height:100%;gap:0}
+#scene{flex:1;min-width:0;position:relative;min-height:60vh}
+#scene canvas{display:block;width:100%;height:100%}
+.legend{position:absolute;left:max(16px,env(safe-area-inset-left,0px));top:14px;font:12px var(--mono);color:var(--mute);display:flex;flex-direction:column;gap:4px;pointer-events:none}
+.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:6px}
+aside{width:340px;background:var(--panel);border-left:1px solid var(--line);padding-block:18px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px;overflow:auto}
+h1{font-size:18px;margin:0;text-wrap:balance}
+.sub{color:var(--mute);font-size:12px;margin-top:4px}
+label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);display:flex;justify-content:space-between}
+label b{font:600 12px var(--mono);color:var(--fg);letter-spacing:0;text-transform:none}
+select,input[type=range]{width:100%;accent-color:var(--acc)}
+select{background:var(--bg);color:var(--fg);border:1px solid var(--line);padding:8px;border-radius:6px;font:14px var(--sans)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.tog{flex:1;padding:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:6px;cursor:pointer;font:13px var(--sans)}
+.tog[aria-pressed=true]{border-color:var(--acc);color:var(--acc)}
+.tog:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.fov{display:flex;gap:14px;align-items:center}
+#ocular{width:96px;height:96px;border-radius:50%;border:3px solid #333;box-shadow:inset 0 0 18px #000a;flex:none}
+.data{font:12px/1.7 var(--mono);color:var(--mute)}
+.data span{color:var(--fg)}
+#exp{font-size:13px;line-height:1.55;color:#c9d1db}
+.tag{display:inline-block;font:600 11px var(--mono);padding:2px 8px;border-radius:99px;border:1px solid}
+@media(max-width:760px){.app{flex-direction:column}aside{width:auto;border-left:0;border-top:1px solid var(--line)}#scene{height:62vh}}
+</style>
+
+<div class="app">
+  <div id="scene">
+    <div class="legend">
+      <div><i style="background:#ffd27a"></i>Luz PP (polarizador E–W)</div>
+      <div><i style="background:#ff6b6b"></i>Rayo lento (n mayor)</div>
+      <div><i style="background:#5fd0ff"></i>Rayo rápido (n menor)</div>
+      <div><i style="background:#c9a7ff"></i>Componente que pasa el analizador</div>
+      <div style="margin-top:4px">Arrastra para girar · rueda para zoom</div>
+    </div>
+  </div>
+  <aside>
+    <div><h1>Luz plano polarizada en minerales</h1><div class="sub">Microscopio petrográfico · lámina delgada</div></div>
+    <div><label for="min">Mineral</label>
+      <select id="min"></select></div>
+    <div><label for="esp">Espesor de la lámina <b id="espv">30 µm</b></label>
+      <input id="esp" type="range" min="5" max="60" value="30"></div>
+    <div><label for="rot">Rotación de la platina <b id="rotv">45°</b></label>
+      <input id="rot" type="range" min="0" max="360" value="45"></div>
+    <div class="row">
+      <button class="tog" id="ana" aria-pressed="true">Analizador (NX)</button>
+      <button class="tog" id="axis" aria-pressed="false">Corte ⟂ eje óptico</button>
+      <button class="tog" id="spin" aria-pressed="false">Girar platina</button>
+    </div>
+    <div class="fov"><div id="ocular"></div>
+      <div class="data">Δ = <span id="d1"></span><br>Γ = Δ·e = <span id="d2"></span><br>Orden: <span id="d3"></span><br><span id="d4"></span></div></div>
+    <div id="exp"></div>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const MIN=[
+ {n:"Granate",b:0,c:0xc0394b,sys:"Cúbico"},
+ {n:"Halita",b:0,c:0xdedede,sys:"Cúbico"},
+ {n:"Fluorita",b:0,c:0x9c7bd6,sys:"Cúbico"},
+ {n:"Vidrio volcánico",b:0,c:0x6b7a6a,sys:"Amorfo"},
+ {n:"Cuarzo",b:0.009,c:0xe8eef2,sys:"Trigonal (uniáxico +)"},
+ {n:"Plagioclasa",b:0.010,c:0xd9dde2,sys:"Triclínico (biáxico)"},
+ {n:"Augita",b:0.025,c:0x5d6b4a,sys:"Monoclínico (biáxico +)"},
+ {n:"Olivino",b:0.036,c:0x9bbf5a,sys:"Ortorrómbico (biáxico)"},
+ {n:"Moscovita",b:0.040,c:0xd8cfa8,sys:"Monoclínico (biáxico −)"},
+ {n:"Biotita",b:0.050,c:0x6a4a2a,sys:"Monoclínico (biáxico −)"},
+ {n:"Calcita",b:0.172,c:0xf2f0e6,sys:"Trigonal (uniáxico −)"}];
+const sel=document.getElementById('min');
+MIN.forEach((m,i)=>sel.add(new Option(m.n+(m.b?"  (anisótropo)":"  (isótropo)"),i)));
+sel.value=4;
+
+/* --- color de interferencia (espectro → sRGB, ajuste CIE de Wyman) --- */
+const g=(x,m,a,b)=>Math.exp(-.5*((x-m)/(x<m?a:b))**2);
+const cmf=l=>[1.056*g(l,599.8,37.9,31)+.362*g(l,442,16,26.7)-.065*g(l,501.1,20.4,26.2),
+ .821*g(l,568.8,46.9,40.5)+.286*g(l,530.9,16.3,31.1),1.217*g(l,437,11.8,36)+.681*g(l,459,26,13.8)];
+const toRGB=([X,Y,Z])=>[3.2406*X-1.5372*Y-.4986*Z,-.9689*X+1.8758*Y+.0415*Z,.0557*X-.204*Y+1.057*Z];
+function spec(f){let s=[0,0,0];for(let l=380;l<=730;l+=5){const c=cmf(l),w=f(l);s[0]+=c[0]*w;s[1]+=c[1]*w;s[2]+=c[2]*w}return toRGB(s)}
+const W=spec(()=>1);
+function color(G,th,crossed){
+ const s2=Math.sin(2*th)**2;
+ const rgb=spec(l=>{const T=s2*Math.sin(Math.PI*G/l)**2;return crossed?T:1-T});
+ return rgb.map((v,i)=>{v=Math.max(0,v/W[i]);v=v<=.0031308?12.92*v:1.055*v**(1/2.4)-.055;return Math.round(Math.min(1,v)*255)});
+}
+
+/* --- escena --- */
+const host=document.getElementById('scene');
+const R=new THREE.WebGLRenderer({antialias:true});R.setPixelRatio(Math.min(2,devicePixelRatio));host.appendChild(R.domElement);
+const S=new THREE.Scene();S.background=new THREE.Color(0x0d1117);
+const C=new THREE.PerspectiveCamera(45,1,.1,100);C.position.set(9,3,11);
+const O=new THREE.OrbitControls(C,R.domElement);O.target.set(0,0.5,0);O.enableDamping=true;
+S.add(new THREE.AmbientLight(0xffffff,.55));const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(5,10,7);S.add(dl);
+
+function label(t,col){const c=document.createElement('canvas');c.width=512;c.height=96;const x=c.getContext('2d');
+ x.font='600 40px IBM Plex Mono, monospace';x.fillStyle=col||'#c9d1db';x.fillText(t,8,60);
+ const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false}));sp.scale.set(4,.75,1);return sp}
+function filter(y,dirX,name,col){
+ const gq=new THREE.Group();
+ const disc=new THREE.Mesh(new THREE.CylinderGeometry(2.4,2.4,.08,64),new THREE.MeshStandardMaterial({color:0x334155,transparent:true,opacity:.45}));gq.add(disc);
+ for(let i=-4;i<=4;i++){const ln=new THREE.Mesh(new THREE.BoxGeometry(dirX?4.4:.04,.1,dirX?.04:4.4),new THREE.MeshBasicMaterial({color:col}));
+  ln.position[dirX?'z':'x']=i*.5;ln.scale[dirX?'x':'z']=Math.sqrt(Math.max(.05,1-(i*.5/2.4)**2));gq.add(ln)}
+ gq.position.y=y;S.add(gq);const l=label(name,'#'+col.toString(16).padStart(6,'0'));l.position.set(4.4,y,0);S.add(l);return gq}
+filter(-4.5,true,'Polarizador E–W',0xffd27a);
+const anaG=filter(5,false,'Analizador N–S',0xc9a7ff);
+const lamp=new THREE.Mesh(new THREE.SphereGeometry(.45,32,16),new THREE.MeshBasicMaterial({color:0xfff3c4}));lamp.position.y=-6.8;S.add(lamp);
+const ll=label('Fuente (luz natural)');ll.position.set(4.4,-6.8,0);S.add(ll);
+
+const crystal=new THREE.Group();S.add(crystal);
+const cMat=new THREE.MeshStandardMaterial({color:0xe8eef2,transparent:true,opacity:.28,roughness:.2});
+const cBox=new THREE.Mesh(new THREE.BoxGeometry(3,1.6,2.2),cMat);crystal.add(cBox);
+const cEdge=new THREE.LineSegments(new THREE.EdgesGeometry(cBox.geometry),new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.6}));crystal.add(cEdge);
+function arrow(col){const a=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,.82,0),1.7,col,.3,.18);
+ const b=new THREE.ArrowHelper(new THREE.Vector3(-1,0,0),new THREE.Vector3(0,.82,0),1.7,col,.3,.18);const gg=new THREE.Group();gg.add(a,b);return gg}
+const arrSlow=arrow(0xff6b6b),arrFast=arrow(0x5fd0ff);arrFast.rotation.y=Math.PI/2;crystal.add(arrSlow,arrFast);
+const cl=label('Mineral (platina)');cl.position.set(4.4,0,0);S.add(cl);
+
+/* ondas */
+const N=420;
+function wave(col,w){const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(N*3),3));
+ const l=new THREE.Line(geo,new THREE.LineBasicMaterial({color:col,linewidth:w||1}));S.add(l);return l}
+const wNat=[0,1,2].map(i=>wave([0xfff3c4,0xffe9a8,0xffdd88][i]));
+const wPP=wave(0xffd27a),wSlow=wave(0xff6b6b),wFast=wave(0x5fd0ff),wOut=wave(0xc9a7ff),wRes=wave(0xffd27a);
+const axisLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,-6.8,0),new THREE.Vector3(0,7.5,0)]),new THREE.LineDashedMaterial({color:0x445,dashSize:.15,gapSize:.12}));axisLine.computeLineDistances();S.add(axisLine);
+
+function setW(line,y0,y1,fn){const p=line.geometry.attributes.position.array;for(let i=0;i<N;i++){const y=y0+(y1-y0)*i/(N-1);const [x,z]=fn(y);p[i*3]=x;p[i*3+1]=y;p[i*3+2]=z}line.geometry.attributes.position.needsUpdate=true;line.geometry.setDrawRange(0,N)}
+
+/* estado */
+const st={m:4,e:30,th:45*Math.PI/180,ana:true,axis:false,spin:false};
+const $=id=>document.getElementById(id);
+function order(G){if(G<1)return'—';const o=Math.ceil(G/550);return['','1.er','2.º','3.er','4.º'][o]||(o+'.º (alto orden)')}
+function update(){
+ const m=MIN[st.m],aniso=m.b>0&&!st.axis,B=aniso?m.b:0,G=B*st.e*1000;
+ cMat.color.setHex(m.c);arrSlow.visible=arrFast.visible=aniso;crystal.rotation.y=st.th;
+ anaG.visible=st.ana;
+ const rgb=color(G,st.th,st.ana);$('ocular').style.background=`rgb(${rgb})`;
+ $('espv').textContent=st.e+' µm';$('rotv').textContent=Math.round(st.th*180/Math.PI)%360+'°';
+ $('d1').textContent=B.toFixed(3);$('d2').textContent=Math.round(G)+' nm';$('d3').textContent=st.ana?order(G):'(sin analizador)';
+ const ext=aniso&&Math.abs(Math.sin(2*st.th))<.06;
+ $('d4').innerHTML=!st.ana?'<span>Luz paralela (N//)</span>':!aniso?'<span>Extinción total</span>':ext?'<span>En posición de extinción</span>':'<span>Colores de interferencia</span>';
+ let t;
+ if(!aniso&&m.b===0) t=`<b>${m.n}</b> es <span class="tag" style="color:#7cc4ff">isótropo</span> (${m.sys}): tiene un solo índice de refracción, la luz PP lo atraviesa sin desdoblarse y sale vibrando igual (E–W). ${st.ana?'El analizador N–S la bloquea por completo: el mineral queda <b>negro en cualquier posición</b> de la platina.':'Con nícoles paralelos solo ves su color natural y relieve.'}`;
+ else if(!aniso) t=`<b>${m.n}</b> es anisótropo, pero cortado <b>perpendicular al eje óptico</b> la luz viaja por la dirección de isotropía: no hay doble refracción y ${st.ana?'se ve negro al girar, como un isótropo. La figura de interferencia conoscópica lo delata.':'se comporta como isótropo.'}`;
+ else t=`<b>${m.n}</b> es <span class="tag" style="color:#ffb46b">anisótropo</span> (${m.sys}). La luz PP se divide en dos rayos que vibran perpendiculares entre sí: el <span style="color:#ff6b6b">lento</span> y el <span style="color:#5fd0ff">rápido</span>. Al salir, el lento lleva un retraso Γ = ${Math.round(G)} nm. ${st.ana?(ext?'Ahora sus direcciones de vibración coinciden con los nícoles: toda la luz va por un solo rayo y el analizador la anula. Esto ocurre <b>cada 90°</b> de giro.':'El analizador recompone ambos rayos; ciertas longitudes de onda se anulan y otras se refuerzan, y nace el <b>color de interferencia</b>. Es máximo a 45° de la extinción.'):'Sin analizador no hay interferencia: observas color propio y, si lo tiene, pleocroísmo.'}`;
+ $('exp').innerHTML=t;
+}
+sel.onchange=()=>{st.m=+sel.value;update()};
+$('esp').oninput=e=>{st.e=+e.target.value;update()};
+$('rot').oninput=e=>{st.th=e.target.value*Math.PI/180;update()};
+const tg=(id,k)=>$(id).onclick=()=>{st[k]=!st[k];$(id).setAttribute('aria-pressed',st[k]);update()};
+tg('ana','ana');tg('axis','axis');tg('spin','spin');
+
+/* animación */
+const lam=.9,k=2*Math.PI/lam;let t0=0;const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function frame(ts){
+ const t=reduce?0:ts/1000*2.2;
+ if(st.spin){st.th=(st.th+.004)%(2*Math.PI);$('rot').value=Math.round(st.th*180/Math.PI);update()}
+ const m=MIN[st.m],aniso=m.b>0&&!st.axis;
+ const yC0=-.8,yC1=.8,th=st.th,ct=Math.cos(th),s=Math.sin(th);
+ const delta=aniso?Math.min(2*Math.PI*m.b*st.e*1000/550,Math.PI*6):0; // desfase visual (cap)
+ const dVis=aniso?Math.PI*.5+((delta%(2*Math.PI))):0;
+ // luz natural: varias direcciones
+ wNat.forEach((w,i)=>{const a=i*Math.PI/3+ts/3000;setW(w,-6.4,-4.5,y=>{const v=.7*Math.sin(k*y-t+i);return[v*Math.cos(a),v*Math.sin(a)]})});
+ setW(wPP,-4.5,yC0,y=>[Math.sin(k*y-t),0]);
+ const kS=k*(aniso?1.25:1),kF=k;
+ // amplitudes: E=x proyectado en u=(c,s) (lento) y v=(-s,c) (rápido)
+ const ph=(y,kk)=>k*yC0+kk*(y-yC0)-t;
+ const extra=y=>dVis*(y-yC0)/(yC1-yC0);
+ if(aniso){
+  wSlow.visible=wFast.visible=true;wRes.visible=false;
+  const slow=y=>ct*Math.sin(ph(y,kF)-extra(Math.min(y,yC1)));
+  const fast=y=>-s*Math.sin(ph(y,kF));
+  setW(wSlow,yC0,4.9,y=>{const a=slow(y);return[a*ct,-a*s]});
+  setW(wFast,yC0,4.9,y=>{const a=fast(y);return[-a*s,-a*ct]});
+  if(st.ana){wOut.visible=true;setW(wOut,5,7.5,y=>{const yy=4.9-(y-5)*0;const a1=ct*Math.sin(ph(y,kF)-dVis),a2=-s*Math.sin(ph(y,kF));
+   const z=(-a1*s)+(-a2*ct);return[0,z]})}else{wOut.visible=true;setW(wOut,5,7.5,y=>{const a1=ct*Math.sin(ph(y,kF)-dVis),a2=-s*Math.sin(ph(y,kF));return[a1*ct-a2*s,-a1*s-a2*ct]})}
+ }else{
+  wSlow.visible=wFast.visible=false;wRes.visible=true;
+  setW(wRes,yC0,4.9,y=>[Math.sin(ph(y,kF)),0]);
+  wOut.visible=!st.ana;if(!st.ana)setW(wOut,5,7.5,y=>[Math.sin(ph(y,kF)),0]);
+ }
+ O.update();R.render(S,C);requestAnimationFrame(frame);
+}
+function resize(){const w=host.clientWidth,h=host.clientHeight;R.setSize(w,h);C.aspect=w/h;C.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();update();requestAnimationFrame(frame);
+</script>
